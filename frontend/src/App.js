@@ -1,54 +1,73 @@
 import { useEffect } from "react";
 import "@/App.css";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
-
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
-
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
-
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
-
-  return (
-    <div>
-      <header className="App-header">
-        <a
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
-  );
-};
+import { ThemeProvider } from "./context/ThemeContext";
+import { AuthProvider } from "./context/AuthContext";
+import { CartProvider } from "./context/CartContext";
+import { WishlistProvider } from "./context/WishlistContext";
+import Layout from "./components/layout/Layout";
+import Home from "./pages/Home";
+import Shop from "./pages/Shop";
+import ProductDetail from "./pages/ProductDetail";
+import Wishlist from "./pages/Wishlist";
+import Checkout from "./pages/Checkout";
+import Login from "./pages/Login";
+import Register from "./pages/Register";
+import Account from "./pages/Account";
+import About from "./pages/About";
+import Contact from "./pages/Contact";
+import FAQ from "./pages/FAQ";
+import CustomOrder from "./pages/CustomOrder";
+import OrderSuccess from "./pages/OrderSuccess";
+import AdminLayout from "./pages/admin/AdminLayout";
+import AdminDashboard from "./pages/admin/AdminDashboard";
+import AdminProducts from "./pages/admin/AdminProducts";
+import AdminOrders from "./pages/admin/AdminOrders";
+import AdminCustomOrders from "./pages/admin/AdminCustomOrders";
+import ProtectedRoute from "./components/ProtectedRoute";
 
 function App() {
-  return (
-    <div className="App">
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-    </div>
-  );
+    useEffect(() => {
+        document.title = "Bhavin Creations · Handmade Resin Art";
+    }, []);
+
+    return (
+        <div className="App">
+            <ThemeProvider>
+                <AuthProvider>
+                    <CartProvider>
+                        <WishlistProvider>
+                            <BrowserRouter>
+                                <Routes>
+                                    <Route element={<Layout />}>
+                                        <Route path="/" element={<Home />} />
+                                        <Route path="/shop" element={<Shop />} />
+                                        <Route path="/products/:id" element={<ProductDetail />} />
+                                        <Route path="/about" element={<About />} />
+                                        <Route path="/contact" element={<Contact />} />
+                                        <Route path="/faq" element={<FAQ />} />
+                                        <Route path="/custom-order" element={<CustomOrder />} />
+                                        <Route path="/login" element={<Login />} />
+                                        <Route path="/register" element={<Register />} />
+                                        <Route path="/wishlist" element={<ProtectedRoute><Wishlist /></ProtectedRoute>} />
+                                        <Route path="/checkout" element={<ProtectedRoute><Checkout /></ProtectedRoute>} />
+                                        <Route path="/account" element={<ProtectedRoute><Account /></ProtectedRoute>} />
+                                        <Route path="/orders/success/:id" element={<ProtectedRoute><OrderSuccess /></ProtectedRoute>} />
+                                        <Route path="/admin" element={<ProtectedRoute adminOnly><AdminLayout /></ProtectedRoute>}>
+                                            <Route index element={<AdminDashboard />} />
+                                            <Route path="products" element={<AdminProducts />} />
+                                            <Route path="orders" element={<AdminOrders />} />
+                                            <Route path="custom-orders" element={<AdminCustomOrders />} />
+                                        </Route>
+                                    </Route>
+                                </Routes>
+                            </BrowserRouter>
+                        </WishlistProvider>
+                    </CartProvider>
+                </AuthProvider>
+            </ThemeProvider>
+        </div>
+    );
 }
 
 export default App;
