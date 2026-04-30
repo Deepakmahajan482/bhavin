@@ -651,8 +651,10 @@ async def stripe_status(session_id: str, request: Request, user: dict = Depends(
             return {"payment_status": "paid", "status": s.status, "order": order}
         return {"payment_status": s.payment_status, "status": s.status, "order_id": txn["order_id"]}
     except Exception as e:
-        logger.error("Stripe status failed: %s", e)
-        raise HTTPException(500, "Could not check payment status")
+        # Stripe proxy can briefly 404 a freshly-created session; treat as pending so
+        # the frontend polling loop keeps retrying instead of erroring out.
+        logger.warning("Stripe status transient error for %s: %s", session_id, e)
+        return {"payment_status": "pending", "status": "open", "order_id": txn["order_id"]}
 
 
 @api.post("/webhook/stripe")
