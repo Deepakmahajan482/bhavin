@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api } from "../lib/api";
+import { api, API_BASE } from "../lib/api";
 import { useCart } from "../context/CartContext";
 import { toast } from "sonner";
 
@@ -20,7 +20,7 @@ export default function Checkout() {
         pincode: "",
         country: "India",
     });
-    const [paymentMethod, setPaymentMethod] = useState("mock_card");
+    const [paymentMethod, setPaymentMethod] = useState("stripe");
 
     const apply = async () => {
         try {
@@ -50,12 +50,18 @@ export default function Checkout() {
                 address: form,
                 coupon_code: couponData?.code,
                 payment_method: paymentMethod,
+                origin_url: window.location.origin,
             });
+            if (data.redirect && data.checkout_url) {
+                // Stripe redirect
+                window.location.href = data.checkout_url;
+                return;
+            }
+            // COD
             await refresh();
-            navigate(`/orders/success/${data.id}`);
+            navigate(`/orders/success/${data.order.id}`);
         } catch (err) {
             toast.error(err.response?.data?.detail || "Checkout failed");
-        } finally {
             setLoading(false);
         }
     };
@@ -94,21 +100,22 @@ export default function Checkout() {
                         <p className="serif text-xl mb-4">Payment Method</p>
                         <div className="grid grid-cols-2 gap-3">
                             {[
-                                ["mock_card", "Card (Mock)"],
-                                ["cod", "Cash on Delivery"],
-                            ].map(([v, l]) => (
+                                ["stripe", "Card (Stripe)", "Secure card payment"],
+                                ["cod", "Cash on Delivery", "Pay when it arrives"],
+                            ].map(([v, l, s]) => (
                                 <button
                                     type="button"
                                     key={v}
                                     onClick={() => setPaymentMethod(v)}
-                                    className={`h-12 rounded-md border text-sm transition ${paymentMethod === v ? "gold-border gold-text" : "hairline"}`}
+                                    className={`p-4 rounded-md border text-left transition ${paymentMethod === v ? "gold-border" : "hairline"}`}
                                     data-testid={`pay-${v}`}
                                 >
-                                    {l}
+                                    <p className={`text-sm font-medium ${paymentMethod === v ? "gold-text" : ""}`}>{l}</p>
+                                    <p className="text-xs text-foreground/60 mt-1">{s}</p>
                                 </button>
                             ))}
                         </div>
-                        <p className="text-xs text-foreground/60 mt-3">Real payment gateway can be plugged in later. For now, "Card (Mock)" simulates a successful charge.</p>
+                        <p className="text-xs text-foreground/60 mt-3">For Stripe testing use card <span className="font-mono">4242 4242 4242 4242</span>, any future date & any CVC.</p>
                     </div>
                 </div>
 
@@ -134,7 +141,7 @@ export default function Checkout() {
                             <div className="flex justify-between border-t hairline pt-2 mt-2 text-base font-medium"><span>Total</span><span data-testid="checkout-total">₹{total.toLocaleString("en-IN")}</span></div>
                         </div>
                         <button disabled={loading} className="w-full h-12 rounded-md btn-gold font-medium disabled:opacity-50" data-testid="place-order-button">
-                            {loading ? "Placing order…" : "Place Order"}
+                            {loading ? "Processing…" : paymentMethod === "stripe" ? "Pay with Card" : "Place Order"}
                         </button>
                     </div>
                 </aside>

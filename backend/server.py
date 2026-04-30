@@ -11,10 +11,11 @@ import bcrypt
 import jwt
 import secrets
 import asyncio
+import requests
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Literal
 
-from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depends, Query
+from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depends, Query, UploadFile, File, Header
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
@@ -164,7 +165,8 @@ class Address(BaseModel):
 class CheckoutIn(BaseModel):
     address: Address
     coupon_code: Optional[str] = None
-    payment_method: Literal["cod", "mock_card"] = "mock_card"
+    payment_method: Literal["cod", "stripe"] = "stripe"
+    origin_url: Optional[str] = None
 
 class CustomOrderIn(BaseModel):
     name: str
@@ -496,12 +498,55 @@ async def create_coupon(payload: CouponIn, _admin: dict = Depends(get_admin_user
     await db.coupons.update_one({"code": code}, {"$set": doc}, upsert=True)
     return doc
 
+# ---------------- Stripe helpers ----------------
+def get_stripe_checkout(request: Request):
+    from emergentintegrations.payments.stripe.checkout import StripeCheckout
+    host_url = str(request.base_url).rstrip("/")
+    webhook_url = f"{host_url}/api/webhook/stripe"
+    return StripeCheckout(api_key=os.environ["STRIPE_API_KEY"], webhook_url=webhook_url)
+
+
+async def _validate_stock(items):
+    """Reject if any line item exceeds available stock."""
+    for it in items:
+        p = it["product"]
+        if it["quantity"] > p.get("stock", 0):
+            raise HTTPException(
+                400,
+                f"Only {p.get('stock', 0)} of '{p['title']}' available",
+            )
+
+
+async def _finalize_order(order_id: str):
+    """Mark order paid+confirmed, decrement stock, clear cart. Idempotent."""
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        return None
+    if order.get("payment_status") == "paid" and order.get("stock_decremented"):
+        return order
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {"payment_status": "paid", "status": "confirmed",
+                   "stock_decremented": True}},
+    )
+    if not order.get("stock_decremented"):
+        for it in order["items"]:
+            await db.products.update_one(
+                {"id": it["product_id"]},
+                {"$inc": {"stock": -it["quantity"]}},
+            )
+    await db.carts.update_one({"user_id": order["user_id"]}, {"$set": {"items": []}})
+    return await db.orders.find_one({"id": order_id}, {"_id": 0})
+
+
 # ---------------- Orders / Checkout ----------------
 @api.post("/checkout")
-async def checkout(payload: CheckoutIn, user: dict = Depends(get_current_user)):
+async def checkout(payload: CheckoutIn, request: Request, user: dict = Depends(get_current_user)):
     cart = await get_cart_with_products(user["id"])
     if not cart["items"]:
         raise HTTPException(400, "Cart is empty")
+    await _validate_stock(cart["items"])
+
     subtotal = cart["subtotal"]
     discount = 0.0
     coupon_code = None
@@ -513,6 +558,8 @@ async def checkout(payload: CheckoutIn, user: dict = Depends(get_current_user)):
     shipping = 0 if subtotal > 999 else 49
     total = round(subtotal - discount + shipping, 2)
     order_id = str(uuid.uuid4())
+
+    is_stripe = payload.payment_method == "stripe"
     order_doc = {
         "id": order_id,
         "user_id": user["id"],
@@ -528,25 +575,112 @@ async def checkout(payload: CheckoutIn, user: dict = Depends(get_current_user)):
         "total": total,
         "coupon_code": coupon_code,
         "payment_method": payload.payment_method,
-        "payment_status": "paid" if payload.payment_method == "mock_card" else "pending",
-        "status": "confirmed",
+        "payment_status": "pending",
+        "status": "pending_payment" if is_stripe else "confirmed",
+        "stock_decremented": False,
         "created_at": now_iso(),
     }
     await db.orders.insert_one(order_doc)
-    # decrement stock
-    for it in cart["items"]:
-        await db.products.update_one(
-            {"id": it["product_id"]},
-            {"$inc": {"stock": -it["quantity"]}},
+
+    if not is_stripe:
+        # COD: confirm immediately, decrement stock, clear cart
+        for it in cart["items"]:
+            await db.products.update_one(
+                {"id": it["product_id"]},
+                {"$inc": {"stock": -it["quantity"]}},
+            )
+        await db.orders.update_one({"id": order_id}, {"$set": {"stock_decremented": True}})
+        await db.carts.update_one({"user_id": user["id"]}, {"$set": {"items": []}})
+        order_doc["stock_decremented"] = True
+        order_doc.pop("_id", None)
+        return {"order": order_doc, "redirect": False}
+
+    # Stripe flow
+    try:
+        stripe = get_stripe_checkout(request)
+        from emergentintegrations.payments.stripe.checkout import CheckoutSessionRequest
+        origin = (payload.origin_url or os.environ.get("FRONTEND_URL", "")).rstrip("/")
+        success_url = f"{origin}/orders/success/{order_id}?session_id={{CHECKOUT_SESSION_ID}}"
+        cancel_url = f"{origin}/checkout?cancelled=1"
+        req = CheckoutSessionRequest(
+            amount=float(total),
+            currency="inr",
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata={"order_id": order_id, "user_id": user["id"]},
         )
-    # clear cart
-    await db.carts.update_one({"user_id": user["id"]}, {"$set": {"items": []}})
-    order_doc.pop("_id", None)
-    return order_doc
+        session = await stripe.create_checkout_session(req)
+        await db.payment_transactions.insert_one({
+            "id": str(uuid.uuid4()),
+            "session_id": session.session_id,
+            "order_id": order_id,
+            "user_id": user["id"],
+            "amount": total,
+            "currency": "inr",
+            "payment_status": "initiated",
+            "status": "open",
+            "metadata": {"order_id": order_id, "user_id": user["id"]},
+            "created_at": now_iso(),
+        })
+        return {"order_id": order_id, "checkout_url": session.url, "session_id": session.session_id, "redirect": True}
+    except Exception as e:
+        logger.error("Stripe session create failed: %s", e)
+        await db.orders.delete_one({"id": order_id})
+        raise HTTPException(500, f"Could not start payment: {e}")
+
+
+@api.get("/payments/stripe/status/{session_id}")
+async def stripe_status(session_id: str, request: Request, user: dict = Depends(get_current_user)):
+    txn = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
+    if not txn:
+        raise HTTPException(404, "Payment not found")
+    if txn["user_id"] != user["id"] and user.get("role") != "admin":
+        raise HTTPException(403, "Forbidden")
+    if txn.get("payment_status") == "paid":
+        order = await db.orders.find_one({"id": txn["order_id"]}, {"_id": 0})
+        return {"payment_status": "paid", "status": "complete", "order": order}
+    try:
+        stripe = get_stripe_checkout(request)
+        s = await stripe.get_checkout_status(session_id)
+        await db.payment_transactions.update_one(
+            {"session_id": session_id},
+            {"$set": {"payment_status": s.payment_status, "status": s.status}},
+        )
+        if s.payment_status == "paid":
+            order = await _finalize_order(txn["order_id"])
+            return {"payment_status": "paid", "status": s.status, "order": order}
+        return {"payment_status": s.payment_status, "status": s.status, "order_id": txn["order_id"]}
+    except Exception as e:
+        logger.error("Stripe status failed: %s", e)
+        raise HTTPException(500, "Could not check payment status")
+
+
+@api.post("/webhook/stripe")
+async def stripe_webhook(request: Request):
+    try:
+        stripe = get_stripe_checkout(request)
+        body = await request.body()
+        sig = request.headers.get("Stripe-Signature", "")
+        evt = await stripe.handle_webhook(body, sig)
+        if evt.payment_status == "paid" and evt.session_id:
+            txn = await db.payment_transactions.find_one({"session_id": evt.session_id}, {"_id": 0})
+            if txn:
+                await db.payment_transactions.update_one(
+                    {"session_id": evt.session_id},
+                    {"$set": {"payment_status": "paid", "status": "complete"}},
+                )
+                await _finalize_order(txn["order_id"])
+        return {"ok": True}
+    except Exception as e:
+        logger.error("Webhook error: %s", e)
+        raise HTTPException(400, "Webhook failed")
 
 @api.get("/orders")
-async def list_user_orders(user: dict = Depends(get_current_user)):
-    return await db.orders.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
+async def list_user_orders(skip: int = 0, limit: int = 20, user: dict = Depends(get_current_user)):
+    cursor = db.orders.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit)
+    items = await cursor.to_list(limit)
+    total = await db.orders.count_documents({"user_id": user["id"]})
+    return {"items": items, "total": total, "skip": skip, "limit": limit}
 
 @api.get("/orders/{oid}")
 async def get_order(oid: str, user: dict = Depends(get_current_user)):
@@ -558,8 +692,11 @@ async def get_order(oid: str, user: dict = Depends(get_current_user)):
     return o
 
 @api.get("/admin/orders")
-async def admin_list_orders(_admin: dict = Depends(get_admin_user)):
-    return await db.orders.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+async def admin_list_orders(skip: int = 0, limit: int = 20, _admin: dict = Depends(get_admin_user)):
+    cursor = db.orders.find({}, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit)
+    items = await cursor.to_list(limit)
+    total = await db.orders.count_documents({})
+    return {"items": items, "total": total, "skip": skip, "limit": limit}
 
 @api.put("/admin/orders/{oid}")
 async def admin_update_order(oid: str, body: dict, _admin: dict = Depends(get_admin_user)):
@@ -583,6 +720,91 @@ async def request_return(oid: str, body: dict, user: dict = Depends(get_current_
     doc.pop("_id", None)
     return doc
 
+# ---------------- Object Storage ----------------
+STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
+APP_NAME = "bhavin-creations"
+storage_key = None
+
+def init_storage():
+    global storage_key
+    if storage_key:
+        return storage_key
+    try:
+        resp = requests.post(
+            f"{STORAGE_URL}/init",
+            json={"emergent_key": os.environ["EMERGENT_LLM_KEY"]},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        storage_key = resp.json()["storage_key"]
+        return storage_key
+    except Exception as e:
+        logger.error("Storage init failed: %s", e)
+        return None
+
+
+def storage_put(path: str, data: bytes, content_type: str):
+    key = init_storage()
+    if not key:
+        raise HTTPException(503, "Storage unavailable")
+    resp = requests.put(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key, "Content-Type": content_type},
+        data=data,
+        timeout=120,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def storage_get(path: str):
+    key = init_storage()
+    if not key:
+        raise HTTPException(503, "Storage unavailable")
+    resp = requests.get(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key},
+        timeout=60,
+    )
+    resp.raise_for_status()
+    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+
+
+@api.post("/uploads")
+async def upload_file(file: UploadFile = File(...), admin: dict = Depends(get_admin_user)):
+    ext = (file.filename or "img").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else "bin"
+    if ext not in ("jpg", "jpeg", "png", "webp", "gif"):
+        raise HTTPException(400, "Only image files are allowed")
+    file_id = str(uuid.uuid4())
+    path = f"{APP_NAME}/products/{file_id}.{ext}"
+    data = await file.read()
+    if len(data) > 8 * 1024 * 1024:
+        raise HTTPException(400, "File too large (max 8MB)")
+    content_type = file.content_type or f"image/{ext}"
+    result = await asyncio.to_thread(storage_put, path, data, content_type)
+    await db.uploaded_files.insert_one({
+        "id": file_id,
+        "storage_path": result["path"],
+        "original_filename": file.filename,
+        "content_type": content_type,
+        "size": result.get("size", len(data)),
+        "uploaded_by": admin["id"],
+        "is_deleted": False,
+        "created_at": now_iso(),
+    })
+    public_url = f"/api/uploads/{file_id}"
+    return {"id": file_id, "url": public_url, "path": result["path"], "size": result.get("size", len(data))}
+
+
+@api.get("/uploads/{file_id}")
+async def download_file(file_id: str):
+    rec = await db.uploaded_files.find_one({"id": file_id, "is_deleted": False}, {"_id": 0})
+    if not rec:
+        raise HTTPException(404, "File not found")
+    data, ct = await asyncio.to_thread(storage_get, rec["storage_path"])
+    return Response(content=data, media_type=rec.get("content_type", ct))
+
+
 # ---------------- Custom orders ----------------
 @api.post("/custom-orders")
 async def create_custom_order(payload: CustomOrderIn):
@@ -593,8 +815,11 @@ async def create_custom_order(payload: CustomOrderIn):
     return doc
 
 @api.get("/admin/custom-orders")
-async def admin_list_custom_orders(_admin: dict = Depends(get_admin_user)):
-    return await db.custom_orders.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+async def admin_list_custom_orders(skip: int = 0, limit: int = 20, _admin: dict = Depends(get_admin_user)):
+    cursor = db.custom_orders.find({}, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit)
+    items = await cursor.to_list(limit)
+    total = await db.custom_orders.count_documents({})
+    return {"items": items, "total": total, "skip": skip, "limit": limit}
 
 # ---------------- Contact ----------------
 @api.post("/contact")
@@ -831,6 +1056,11 @@ async def on_startup():
     await seed_test_user()
     await seed_products()
     await seed_coupons()
+    try:
+        init_storage()
+        logger.info("Object storage initialized")
+    except Exception as e:
+        logger.warning("Storage init skipped: %s", e)
 
 @app.on_event("shutdown")
 async def on_shutdown():

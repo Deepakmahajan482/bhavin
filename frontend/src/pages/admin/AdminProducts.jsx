@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { api } from "../../lib/api";
-import { Pencil, Trash2, Plus } from "lucide-react";
+import { api, API_BASE } from "../../lib/api";
+import { Pencil, Trash2, Plus, Upload, X } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../../components/ui/dialog";
 import { toast } from "sonner";
 
@@ -11,13 +11,18 @@ export default function AdminProducts() {
     const [form, setForm] = useState(empty);
     const [editing, setEditing] = useState(null);
     const [open, setOpen] = useState(false);
+    const [uploading, setUploading] = useState(false);
 
     const load = () => api.get("/products?limit=200").then((r) => setProducts(r.data));
     useEffect(() => { load(); }, []);
 
     const save = async (e) => {
         e.preventDefault();
-        const payload = { ...form, price: Number(form.price), stock: Number(form.stock), images: form.images.filter(Boolean) };
+        if (form.images.length === 0) {
+            toast.error("Add at least one image");
+            return;
+        }
+        const payload = { ...form, price: Number(form.price), stock: Number(form.stock), images: form.images };
         try {
             if (editing) await api.put(`/products/${editing}`, payload);
             else await api.post("/products", payload);
@@ -30,6 +35,28 @@ export default function AdminProducts() {
             toast.error(err.response?.data?.detail || "Failed to save");
         }
     };
+
+    const onUpload = async (e) => {
+        const files = Array.from(e.target.files || []);
+        if (files.length === 0) return;
+        setUploading(true);
+        const newUrls = [];
+        for (const f of files) {
+            const fd = new FormData();
+            fd.append("file", f);
+            try {
+                const { data } = await api.post("/uploads", fd, { headers: { "Content-Type": "multipart/form-data" } });
+                newUrls.push(`${API_BASE}${data.url}`);
+            } catch (err) {
+                toast.error(err.response?.data?.detail || "Upload failed");
+            }
+        }
+        setForm((f) => ({ ...f, images: [...f.images, ...newUrls] }));
+        setUploading(false);
+        e.target.value = "";
+    };
+
+    const removeImage = (idx) => setForm((f) => ({ ...f, images: f.images.filter((_, i) => i !== idx) }));
 
     const onEdit = (p) => {
         setEditing(p.id);
@@ -53,7 +80,7 @@ export default function AdminProducts() {
                             <Plus className="h-4 w-4" /> New Product
                         </button>
                     </DialogTrigger>
-                    <DialogContent className="max-w-lg">
+                    <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
                         <DialogHeader>
                             <DialogTitle className="serif">{editing ? "Edit Product" : "New Product"}</DialogTitle>
                         </DialogHeader>
@@ -66,7 +93,28 @@ export default function AdminProducts() {
                                 <input required placeholder="Category" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="bg-transparent border hairline rounded-md h-10 px-3 text-sm" data-testid="prod-cat" />
                                 <input required placeholder="Color" value={form.color} onChange={(e) => setForm({ ...form, color: e.target.value })} className="bg-transparent border hairline rounded-md h-10 px-3 text-sm" data-testid="prod-color" />
                             </div>
-                            <textarea rows={2} placeholder="Image URLs (one per line)" value={form.images.join("\n")} onChange={(e) => setForm({ ...form, images: e.target.value.split("\n") })} className="w-full bg-transparent border hairline rounded-md p-3 text-sm" data-testid="prod-images" />
+
+                            <div className="space-y-2">
+                                <label className="text-xs uppercase tracking-widest text-foreground/60">Images</label>
+                                {form.images.length > 0 && (
+                                    <div className="grid grid-cols-4 gap-2">
+                                        {form.images.map((url, i) => (
+                                            <div key={i} className="relative aspect-square rounded-md overflow-hidden border hairline">
+                                                <img src={url} alt="" className="w-full h-full object-cover" />
+                                                <button type="button" onClick={() => removeImage(i)} className="absolute top-1 right-1 h-6 w-6 inline-flex items-center justify-center rounded-full bg-background/85 hover:bg-destructive hover:text-white" data-testid={`remove-img-${i}`}>
+                                                    <X className="h-3 w-3" />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                <label className="flex items-center justify-center gap-2 h-20 border hairline border-dashed rounded-md cursor-pointer hover:gold-border text-sm" data-testid="prod-upload-label">
+                                    <Upload className="h-4 w-4" />
+                                    {uploading ? "Uploading…" : "Upload images (jpg/png/webp ≤ 8MB)"}
+                                    <input type="file" multiple accept="image/*" onChange={onUpload} className="hidden" disabled={uploading} data-testid="prod-upload-input" />
+                                </label>
+                            </div>
+
                             <label className="inline-flex items-center gap-2 text-sm">
                                 <input type="checkbox" checked={form.featured} onChange={(e) => setForm({ ...form, featured: e.target.checked })} data-testid="prod-featured" />
                                 Featured
@@ -96,7 +144,7 @@ export default function AdminProducts() {
                                 <td className="p-3 serif">{p.title}</td>
                                 <td className="p-3 text-foreground/70">{p.category}</td>
                                 <td className="p-3">₹{p.price}</td>
-                                <td className="p-3">{p.stock}</td>
+                                <td className="p-3"><span className={p.stock < 5 ? "text-destructive" : ""}>{p.stock}</span></td>
                                 <td className="p-3 text-right">
                                     <button onClick={() => onEdit(p)} className="h-8 w-8 inline-flex items-center justify-center rounded-md hover:bg-muted" data-testid={`edit-${p.id}`}><Pencil className="h-3.5 w-3.5" /></button>
                                     <button onClick={() => onDelete(p.id)} className="h-8 w-8 inline-flex items-center justify-center rounded-md hover:bg-muted" data-testid={`delete-${p.id}`}><Trash2 className="h-3.5 w-3.5" /></button>
