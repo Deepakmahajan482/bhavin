@@ -1,0 +1,96 @@
+{
+  "theme": "Light with Dark Mode",
+  "archetype": "Artisan Elegance (Custom blend of Pastel & Soft + Luxury)",
+  "typography": {
+    "headings": {
+      "fontFamily": "Playfair Display",
+      "weights": ["400", "600", "700"],
+      "usage": "Use for all H1, H2, H3. Apply tracking-tight for sizes above 32px."
+    },
+    "body": {
+      "fontFamily": "Outfit",
+      "weights": ["300", "400", "500"],
+      "usage": "Use for all body text, UI elements, buttons, and form inputs."
+    }
+  },
+  "color_palette": {
+    "light": {
+      "background": "#FAF9F6",
+      "foreground": "#0A0A0A",
+      "card": "#FFFFFF",
+      "card_foreground": "#0A0A0A",
+      "primary": "#0A0A0A",
+      "primary_foreground": "#FFFFFF",
+      "muted": "#E9E4DC",
+      "accent": "#C5A059",
+      "border": "#E5E0D8"
+    },
+    "dark": {
+      "background": "#0F0F0F",
+      "foreground": "#F9F9F9",
+      "card": "#181818",
+      "card_foreground": "#F9F9F9",
+      "primary": "#F9F9F9",
+      "primary_foreground": "#0F0F0F",
+      "muted": "#2A2A2A",
+      "accent": "#D4AF37",
+      "border": "#333333"
+    }
+  },
+  "layout_and_spacing": {
+    "philosophy": "Generous spacing. Sections should feel like a high-end art gallery. Use p-12 to p-24 for section paddings.",
+    "grids": "Use the Tetris Bento Grid (grid-cols-1 md:grid-cols-12) for category showcasing. Overlap images with text slightly for an editorial look.",
+    "container_radius": "Subtle curves, max rounded-lg (8px)."
+  },
+  "ui_components": {
+    "buttons": "Primary CTA should be solid Obsidian/White with a subtle gold hover state (hover:bg-[#C5A059] hover:text-white). No pill shapes, use standard rounded-md.",
+    "cards": "For products, use cardless designs. Just an image and text below. Do not wrap products in generic white cards.",
+    "header": "Crystal Glassmorphism: backdrop-blur-xl bg-white/70 in light mode, with a delicate 1px border-b of border-black/5.",
+    "animations": "Smooth scroll with lenis. Staggered fade-up for product grids using framer-motion."
+  },
+  "media": {
+    "images": [
+      {
+        "category": "hero_background",
+        "url": "https://images.unsplash.com/photo-1628965582495-e84e68eaf90d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTB8MHwxfHNlYXJjaHwyfHxwYXN0ZWwlMjBtYXJibGUlMjB0ZXh0dXJlfGVufDB8fHx8MTc3NzU3ODY3MXww&ixlib=rb-4.1.0&q=85",
+        "description": "Abstract white and brown pastel marble texture, perfect for the hero background to convey liquid resin flowing."
+      },
+      {
+        "category": "product_jewelry",
+        "url": "https://images.unsplash.com/photo-1758995115543-983c55f98a33?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Nzh8MHwxfHNlYXJjaHwzfHxsdXh1cnklMjBwZXJzb25hbGl6ZWQlMjBnaWZ0cyUyMGVsZWdhbnR8ZW58MHx8fHwxNzc3NTc4NjU2fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Gold necklaces, representing personalized luxury jewelry."
+      },
+      {
+        "category": "product_cufflinks",
+        "url": "https://images.unsplash.com/photo-1761110518837-689557b142bf?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Nzh8MHwxfHNlYXJjaHwxfHxsdXh1cnklMjBwZXJzb25hbGl6ZWQlMjBnaWZ0cyUyMGVsZWdhbnR8ZW58MHx8fHwxNzc3NTc4NjU2fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Elegant personalized cufflinks in a wooden box."
+      },
+      {
+        "category": "product_necklace_heart",
+        "url": "https://images.unsplash.com/photo-1761211115639-54394f139142?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Nzh8MHwxfHNlYXJjaHwyfHxsdXh1cnklMjBwZXJzb25hbGl6ZWQlMjBnaWZ0cyUyMGVsZWdhbnR8ZW58MHx8fHwxNzc3NTc4NjU2fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Gold heart necklace on pink satin, great for romantic gifts category."
+      },
+      {
+        "category": "about_crafting",
+        "url": "https://images.pexels.com/photos/7256576/pexels-photo-7256576.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Hands crafting resin art, perfect for the About Bhavin Creations section."
+      },
+      {
+        "category": "abstract_resin",
+        "url": "https://images.unsplash.com/photo-1556139943-4bdca53adf1e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NjV8MHwxfHNlYXJjaHwzfHxyZXNpbiUyMGFydHxlbnwwfHx8fDE3Nzc1Nzg2NzF8MA&ixlib=rb-4.1.0&q=85",
+        "description": "White background with pink and blue paint, great for a banner or custom order section."
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Install fonts via fontsource or google fonts: Playfair Display and Outfit.",
+    "Implement a theme toggle (Light/Dark). Ensure contrast ratios meet APCA standards.",
+    "Do not use generic 'Inter' anywhere. Do not use standard Shadcn cards for product display; build a custom cardless gallery grid.",
+    "Implement the 'Developed by RK Technologies' in the footer along with the tagline 'Crafting Digital Experiences, Just Like Bhavin Creates Art.'",
+    "Use Framer Motion for scroll-reveals (e.g. while scrolling through products).",
+    "Add 'data-testid' to all interactive elements for testing.",
+    "Admin panel should use a dense 'Control Room' grid with Shadcn components, contrasting with the airy storefront.",
+    "Ensure hover states explicitly change text colors when background colors change.",
+    "Include a floating WhatsApp click-to-chat button (use a subtle glowing effect)."
+  ]
+}
