@@ -57,9 +57,7 @@ export default function Login() {
             <p className="text-sm text-foreground/70 mt-6">
                 New here? <Link to="/register" className="gold-text hover:underline" data-testid="register-link">Create an account</Link>
             </p>
-            <p className="text-xs text-foreground/50 mt-4">
-                Demo: demo@bhavincreations.com / Demo@123
-            </p>
+           
         </div>
     );
 }

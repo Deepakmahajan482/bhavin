@@ -31,7 +31,7 @@ export default function Contact() {
 
             <div className="mt-12 grid grid-cols-1 lg:grid-cols-12 gap-10">
                 <div className="lg:col-span-5 space-y-5">
-                    <div className="flex items-start gap-3"><MapPin className="h-4 w-4 mt-1 gold-text" /><div><p className="serif">Studio</p><p className="text-sm text-foreground/70">Ahmedabad, Gujarat, India</p></div></div>
+                    <div className="flex items-start gap-3"><MapPin className="h-4 w-4 mt-1 gold-text" /><div><p className="serif">Studio</p><p className="text-sm text-foreground/70">Amritsar, Punjab, India</p></div></div>
                     <div className="flex items-start gap-3"><Phone className="h-4 w-4 mt-1 gold-text" /><div><p className="serif">Phone / WhatsApp</p><p className="text-sm text-foreground/70">+91 99999 99999</p></div></div>
                     <div className="flex items-start gap-3"><Mail className="h-4 w-4 mt-1 gold-text" /><div><p className="serif">Email</p><p className="text-sm text-foreground/70">hello@bhavincreations.com</p></div></div>
                 </div>
