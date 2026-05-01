@@ -532,11 +532,6 @@ async def create_coupon(payload: CouponIn, _admin: dict = Depends(get_admin_user
 
 
 # ── Stripe Helpers ────────────────────────────────────────────────────────────
-def get_stripe_checkout(request: Request):
-    from emergentintegrations.payments.stripe.checkout import StripeCheckout
-    host_url    = str(request.base_url).rstrip("/")
-    webhook_url = f"{host_url}/api/webhook/stripe"
-    return StripeCheckout(api_key=os.environ["STRIPE_API_KEY"], webhook_url=webhook_url)
 
 async def _validate_stock(items):
     for it in items:
@@ -622,42 +617,6 @@ async def checkout(payload: CheckoutIn, request: Request, user: dict = Depends(g
         return {"order": order_doc, "redirect": False}
 
     # Stripe flow
-    try:
-        stripe = get_stripe_checkout(request)
-        from emergentintegrations.payments.stripe.checkout import CheckoutSessionRequest
-        origin      = (payload.origin_url or os.environ.get("FRONTEND_URL", "")).rstrip("/")
-        success_url = f"{origin}/orders/success/{order_id}?session_id={{CHECKOUT_SESSION_ID}}"
-        cancel_url  = f"{origin}/checkout?cancelled=1"
-        req = CheckoutSessionRequest(
-            amount=float(total),
-            currency="inr",
-            success_url=success_url,
-            cancel_url=cancel_url,
-            metadata={"order_id": order_id, "user_id": user["id"]},
-        )
-        session = await stripe.create_checkout_session(req)
-        await db.payment_transactions.insert_one({
-            "id":             str(uuid.uuid4()),
-            "session_id":     session.session_id,
-            "order_id":       order_id,
-            "user_id":        user["id"],
-            "amount":         total,
-            "currency":       "inr",
-            "payment_status": "initiated",
-            "status":         "open",
-            "metadata":       {"order_id": order_id, "user_id": user["id"]},
-            "created_at":     now_iso(),
-        })
-        return {
-            "order_id":     order_id,
-            "checkout_url": session.url,
-            "session_id":   session.session_id,
-            "redirect":     True,
-        }
-    except Exception as e:
-        logger.error("Stripe session create failed: %s", e)
-        await db.orders.delete_one({"id": order_id})
-        raise HTTPException(500, f"Could not start payment: {e}")
 
 @api.get("/payments/stripe/status/{session_id}")
 async def stripe_status(session_id: str, request: Request, user: dict = Depends(get_current_user)):
@@ -852,66 +811,6 @@ async def admin_analytics(_admin: dict = Depends(get_admin_user)):
 
 
 # ── AI Recommendations ────────────────────────────────────────────────────────
-@api.post("/ai/recommendations")
-async def ai_recommendations(payload: AIRecommendIn):
-    try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
-    except Exception as e:
-        logger.warning("emergentintegrations unavailable: %s", e)
-        items = await db.products.find({"featured": True}, {"_id": 0}).limit(4).to_list(4)
-        return {"items": items, "reasoning": "Featured picks for you."}
-
-    products = await db.products.find(
-        {}, {"_id": 0, "id": 1, "title": 1, "category": 1, "price": 1, "color": 1}
-    ).limit(40).to_list(40)
-
-    seeds = [p for sid in payload.seed_product_ids[:5] for p in products if p["id"] == sid]
-
-    catalog_text = "\n".join(
-        f"- {p['id']} | {p['title']} ({p['category']}, color:{p['color']}, ₹{p['price']})"
-        for p in products
-    )
-    seed_text = "\n".join(f"- {s['title']}" for s in seeds) or "(no seeds)"
-    interest  = payload.interests or "general resin art lover"
-
-    system = (
-        "You are a curator for Bhavin Creations, a premium handmade resin art brand. "
-        "Recommend 4 product IDs from the provided catalog that match the user's taste. "
-        'Respond strictly as JSON: {"ids":["id1","id2","id3","id4"], "reasoning":"one short paragraph"}.'
-    )
-    user_text = f"Interests: {interest}\nLiked items:\n{seed_text}\n\nCatalog:\n{catalog_text}"
-
-    try:
-        chat = LlmChat(
-            api_key=os.environ["EMERGENT_LLM_KEY"],
-            session_id=f"reco-{uuid.uuid4()}",
-            system_message=system,
-        ).with_model("anthropic", "claude-sonnet-4-5-20250929")
-        resp = await chat.send_message(UserMessage(text=user_text))
-        text = resp if isinstance(resp, str) else str(resp)
-
-        import json, re
-        m    = re.search(r"\{[\s\S]*\}", text)
-        data = json.loads(m.group(0)) if m else {}
-        ids  = data.get("ids", [])[:4]
-        reasoning = data.get("reasoning", "Curated picks based on your taste.")
-
-        items = [p for pid in ids for p in products if p["id"] == pid]
-        if len(items) < 4:
-            items += [p for p in products if p not in items][: 4 - len(items)]
-
-        full = []
-        for it in items:
-            p = await db.products.find_one({"id": it["id"]}, {"_id": 0})
-            if p:
-                full.append(p)
-        return {"items": full, "reasoning": reasoning}
-
-    except Exception as e:
-        logger.error("AI reco failed: %s", e)
-        items = await db.products.find({"featured": True}, {"_id": 0}).limit(4).to_list(4)
-        return {"items": items, "reasoning": "Featured picks for you."}
-
 
 # ── Health ────────────────────────────────────────────────────────────────────
 @api.get("/")
