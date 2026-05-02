@@ -10,14 +10,17 @@ export default function AdminOrders() {
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(0);
 
-    const load = (p = page) => {
-        api.get(`/admin/orders?skip=${p * PAGE}&limit=${PAGE}`).then((r) => {
-            setOrders(r.data.items || []);
-            setTotal(r.data.total || 0);
-        });
-    };
-    useEffect(() => { load(0); }, []);
+    const load = useCallback((p = page) => {
+        api.get(`/admin/orders?skip=${p * PAGE}&limit=${PAGE}`)
+            .then((r) => {
+                setOrders(r.data.items || []);
+                setTotal(r.data.total || 0);
+            });
+    }, [page]);
 
+    useEffect(() => {
+        load();
+    }, [load]);
     const updateStatus = async (id, status) => {
         await api.put(`/admin/orders/${id}`, { status });
         load(page);
