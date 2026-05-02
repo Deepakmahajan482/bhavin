@@ -1087,9 +1087,13 @@ else:
     allow_credentials = False
 
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allow_origins,
-    allow_credentials=allow_credentials,
+     CORSMiddleware,
+    allow_origins=[
+        "https://bhavin-ibxh.vercel.app",
+        "http://localhost:3000",
+        "http://localhost:5173",
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
